@@ -3,9 +3,10 @@ MkDoxy → MkDocs + Doxygen = easy documentation generator with code snippets
 
 MkDoxy is a MkDocs plugin for generating documentation from Doxygen XML files.
 """
-
+import subprocess
 import logging
 from pathlib import Path, PurePath
+from urllib.parse import urlparse
 
 from mkdocs import exceptions
 from mkdocs.config import Config, base, config_options
@@ -20,10 +21,38 @@ from mkdoxy.generatorBase import GeneratorBase
 from mkdoxy.generatorSnippets import GeneratorSnippets
 from mkdoxy.xml_parser import XmlParser
 
+
 log: logging.Logger = logging.getLogger("mkdocs")
 pluginName: str = "MkDoxy"
 
 
+def clone_repository(url: str, recursive: bool = False) -> str:
+    """! Clone a git repository and return the path
+    @param url: Repository URL
+    @param recursive: Clone submodules recursively
+    @return: Path to cloned repository
+    """
+    try:
+        with TemporaryDirectory() as tmp_dir:
+            repo_name = url.split('/')[-1].split('.')[0] or "repo"
+            repo_path = str(Path(tmp_dir) / repo_name)
+            
+            cmd = ["git", "clone", "--depth", "1"]
+            if recursive:
+                cmd.append("--recursive")
+            cmd.extend([url, repo_path])
+            
+            subprocess.check_call(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            return repo_path
+    except subprocess.CalledProcessError as e:
+        raise exceptions.ConfigurationError(
+            f"Git clone failed for {url}: {str(e)}"
+        )
+    
 class MkDoxy(BasePlugin):
     """! MkDocs plugin for generating documentation from Doxygen XML files."""
 
@@ -34,6 +63,8 @@ class MkDoxy(BasePlugin):
         ("debug", config_options.Type(bool, default=False)),
         ("ignore-errors", config_options.Type(bool, default=False)),
         ("save-api", config_options.Type(str, default="")),
+        ("git-clone", config_options.Type(bool, default=False)),
+        ("git-recursive", config_options.Type(bool, default=False)),
         ("enabled", config_options.Type(bool, default=True)),
         (
             "doxygen-bin-path",
@@ -51,6 +82,8 @@ class MkDoxy(BasePlugin):
         ("doxy-cfg", config_options.Type(dict, default={}, required=False)),
         ("doxy-cfg-file", config_options.Type(str, default="", required=False)),
         ("template-dir", config_options.Type(str, default="", required=False)),
+        ("git-url", config_options.Type(str, default="")),
+        ("git-branch", config_options.Type(str, default="main")),
     )
 
     def is_enabled(self) -> bool:
@@ -70,6 +103,34 @@ class MkDoxy(BasePlugin):
         """
         if not self.is_enabled():
             return files
+        
+        for project_name, project_data in self.projects_config.items():
+            log.info(f"-> Start project '{project_name}'")
+
+            # Handle Git repository if specified
+            src_dirs = project_data.get("src-dirs")
+            git_url = project_data.get("git-url", "")
+
+            if git_url and self.config.get("git-clone", False):
+                try:
+                    log.info(f"  -> cloning repository {git_url}")
+                    cloned_path = clone_repository(
+                        git_url,
+                        recursive=self.config.get("git-recursive", False)
+                    )
+                    # Update src-dirs to use cloned repository
+                    if isinstance(src_dirs, str):
+                        src_dirs = str(Path(cloned_path) / src_dirs)
+                    elif isinstance(src_dirs, list):
+                        src_dirs = [str(Path(cloned_path) / d) for d in src_dirs]
+                    project_data["src-dirs"] = src_dirs
+                except Exception as e:
+                    error_msg = f"Failed to clone repository {git_url}: {str(e)}"
+                    if self.config["ignore-errors"]:
+                        log.error(error_msg)
+                        continue
+                    else:
+                        raise exceptions.ConfigurationError(error_msg)
 
         def checkConfig(config_project, proData, strict: bool):
             cfg = Config(config_project, "")
