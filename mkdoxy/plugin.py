@@ -3,10 +3,10 @@ MkDoxy → MkDocs + Doxygen = easy documentation generator with code snippets
 
 MkDoxy is a MkDocs plugin for generating documentation from Doxygen XML files.
 """
-import subprocess
 import logging
 from pathlib import Path, PurePath
 from urllib.parse import urlparse
+from git import Repo 
 
 from mkdocs import exceptions
 from mkdocs.config import Config, base, config_options
@@ -21,6 +21,7 @@ from mkdoxy.generatorBase import GeneratorBase
 from mkdoxy.generatorSnippets import GeneratorSnippets
 from mkdoxy.xml_parser import XmlParser
 
+from tempfile import TemporaryDirectory
 
 log: logging.Logger = logging.getLogger("mkdocs")
 pluginName: str = "MkDoxy"
@@ -37,18 +38,18 @@ def clone_repository(url: str, recursive: bool = False) -> str:
             repo_name = url.split('/')[-1].split('.')[0] or "repo"
             repo_path = str(Path(tmp_dir) / repo_name)
             
-            cmd = ["git", "clone", "--depth", "1"]
-            if recursive:
-                cmd.append("--recursive")
-            cmd.extend([url, repo_path])
+            clone_opts = {
+                'url': url,
+                'to_path': repo_path,
+                'depth': 1, 
+                'recursive': recursive
+            }
             
-            subprocess.check_call(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            return repo_path
-    except subprocess.CalledProcessError as e:
+            Repo.clone_from(**clone_opts)
+
+            return str(repo_path)
+        
+    except GitCommandError as e:
         raise exceptions.ConfigurationError(
             f"Git clone failed for {url}: {str(e)}"
         )
@@ -111,7 +112,7 @@ class MkDoxy(BasePlugin):
             src_dirs = project_data.get("src-dirs")
             git_url = project_data.get("git-url", "")
 
-            if git_url and self.config.get("git-clone", False):
+            if git_url:
                 try:
                     log.info(f"  -> cloning repository {git_url}")
                     cloned_path = clone_repository(
@@ -121,8 +122,8 @@ class MkDoxy(BasePlugin):
                     # Update src-dirs to use cloned repository
                     if isinstance(src_dirs, str):
                         src_dirs = str(Path(cloned_path) / src_dirs)
-                    elif isinstance(src_dirs, list):
-                        src_dirs = [str(Path(cloned_path) / d) for d in src_dirs]
+                    # elif isinstance(src_dirs, list):
+                    #     src_dirs = [str(Path(cloned_path) / d) for d in src_dirs]
                     project_data["src-dirs"] = src_dirs
                 except Exception as e:
                     error_msg = f"Failed to clone repository {git_url}: {str(e)}"
