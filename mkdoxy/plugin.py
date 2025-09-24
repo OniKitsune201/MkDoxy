@@ -4,9 +4,10 @@ MkDoxy → MkDocs + Doxygen = easy documentation generator with code snippets
 MkDoxy is a MkDocs plugin for generating documentation from Doxygen XML files.
 """
 import logging
+import os
 from pathlib import Path, PurePath
 from urllib.parse import urlparse
-from git import Repo 
+from git import Repo, exc as GitExc
 
 from mkdocs import exceptions
 from mkdocs.config import Config, base, config_options
@@ -21,9 +22,16 @@ from mkdoxy.generatorBase import GeneratorBase
 from mkdoxy.generatorSnippets import GeneratorSnippets
 from mkdoxy.xml_parser import XmlParser
 
-from tempfile import TemporaryDirectory
+import tempfile
+import shutil
+
+logging.basicConfig(
+    level=logging.DEBUG,  # Set the root logger to DEBUG
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 log: logging.Logger = logging.getLogger("mkdocs")
+log.setLevel(logging.DEBUG)
 pluginName: str = "MkDoxy"
 
 
@@ -34,25 +42,31 @@ def clone_repository(url: str, recursive: bool = False) -> str:
     @return: Path to cloned repository
     """
     try:
-        with TemporaryDirectory() as tmp_dir:
-            repo_name = url.split('/')[-1].split('.')[0] or "repo"
-            repo_path = str(Path(tmp_dir) / repo_name)
-            
-            clone_opts = {
-                'url': url,
-                'to_path': repo_path,
-                'depth': 1, 
-                'recursive': recursive
-            }
-            
-            Repo.clone_from(**clone_opts)
-
-            return str(repo_path)
+        # Use mkdtemp to create a persistent temporary directory
+        tmp_dir = tempfile.mkdtemp()
+        repo_name = url.split('/')[-1].split('.')[0] or "repo"
+        repo_path = str(Path(tmp_dir) / repo_name)
         
-    except GitCommandError as e:
-        raise exceptions.ConfigurationError(
-            f"Git clone failed for {url}: {str(e)}"
-        )
+        clone_opts = {
+            'url': url,
+            'to_path': repo_path,
+            'depth': 1, 
+            'recursive': recursive
+        }
+        
+        Repo.clone_from(**clone_opts)
+        log.debug(f"Contents of cloned repository '{repo_name}': {os.listdir(repo_path)}")
+        return str(repo_path)
+        
+    except GitExc.GitCommandError as e:
+        error_message = f"Git clone failed for {url}: {e.stderr.strip()}"
+        log.error(error_message)
+        raise ConfigurationError(error_message)
+        
+    except Exception as e:
+        error_message = f"An unexpected error occurred during git clone for {url}: {str(e)}"
+        log.error(error_message)
+        raise ConfigurationError(error_message)
     
 class MkDoxy(BasePlugin):
     """! MkDocs plugin for generating documentation from Doxygen XML files."""
@@ -61,7 +75,7 @@ class MkDoxy(BasePlugin):
     config_scheme = (
         ("projects", config_options.Type(dict, default={})),
         ("full-doc", config_options.Type(bool, default=True)),
-        ("debug", config_options.Type(bool, default=False)),
+        ("debug", config_options.Type(bool, default=True)),
         ("ignore-errors", config_options.Type(bool, default=False)),
         ("save-api", config_options.Type(str, default="")),
         ("git-clone", config_options.Type(bool, default=False)),
@@ -105,33 +119,6 @@ class MkDoxy(BasePlugin):
         if not self.is_enabled():
             return files
         
-        for project_name, project_data in self.projects_config.items():
-            log.info(f"-> Start project '{project_name}'")
-
-            # Handle Git repository if specified
-            src_dirs = project_data.get("src-dirs")
-            git_url = project_data.get("git-url", "")
-
-            if git_url:
-                try:
-                    log.info(f"  -> cloning repository {git_url}")
-                    cloned_path = clone_repository(
-                        git_url,
-                        recursive=self.config.get("git-recursive", False)
-                    )
-                    # Update src-dirs to use cloned repository
-                    if isinstance(src_dirs, str):
-                        src_dirs = str(Path(cloned_path) / src_dirs)
-                    # elif isinstance(src_dirs, list):
-                    #     src_dirs = [str(Path(cloned_path) / d) for d in src_dirs]
-                    project_data["src-dirs"] = src_dirs
-                except Exception as e:
-                    error_msg = f"Failed to clone repository {git_url}: {str(e)}"
-                    if self.config["ignore-errors"]:
-                        log.error(error_msg)
-                        continue
-                    else:
-                        raise exceptions.ConfigurationError(error_msg)
 
         def checkConfig(config_project, proData, strict: bool):
             cfg = Config(config_project, "")
@@ -161,9 +148,42 @@ class MkDoxy(BasePlugin):
         self.defaultTemplateConfig: dict = {
             "indent_level": 0,
         }
+        
 
         log.info(f"Start plugin {pluginName}")
 
+        for project_name, project_data in self.projects_config.items():
+            log.info(f"-> Start project '{project_name}'")
+
+            # Handle Git repository if specified
+            src_dirs = project_data.get("src-dirs")
+            git_url = project_data.get("git-url", "")
+
+            if git_url:
+                try:
+                    log.info(f"  -> cloning repository {git_url}")
+                    cloned_path = clone_repository(
+                        git_url,
+                        recursive=self.config.get("git-recursive", False)
+                    )
+                    log.debug(f"Contents of cloned repository: {os.listdir(cloned_path)}")
+                    # Update src-dirs to use cloned repository
+                    if isinstance(src_dirs, str):
+                        project_data["src-dirs"] = str(Path(cloned_path)) + '/' + str(src_dirs)
+                    # elif isinstance(src_dirs, list):
+                    #     src_dirs = [str(Path(cloned_path) / d) for d in src_dirs]
+                    else:
+                        project_data["src-dirs"] = str(Path(cloned_path))
+
+                    print(f'++++++++++++++++++++++++++++++++++projectdata src dir die erste{project_data["src-dirs"]}')
+                except Exception as e:
+                    error_msg = f"Failed to clone repository {git_url}: {str(e)}"
+                    if self.config["ignore-errors"]:
+                        log.error(error_msg)
+                        continue
+                    else:
+                        raise exceptions.ConfigurationError(error_msg)
+        print(f'++++++++++++++++++++++++++++++++++projectdata src dir die erste{project_data["src-dirs"]}')
         for project_name, project_data in self.projects_config.items():
             log.info(f"-> Start project '{project_name}'")
 
@@ -174,7 +194,7 @@ class MkDoxy(BasePlugin):
                 tempDirApi = tempDir("", self.config.get("save-api"), project_name)
             else:
                 tempDirApi = tempDir(config["site_dir"], "assets/.doxy/", project_name)
-
+            print(f'---------------------- projectdata srcdirs: {project_data.get("src-dirs")}')
             # Check src changes -> run Doxygen
             doxygenRun = DoxygenRun(
                 self.config["doxygen-bin-path"],
@@ -183,6 +203,7 @@ class MkDoxy(BasePlugin):
                 project_data.get("doxy-cfg", {}),
                 project_data.get("doxy-cfg-file", ""),
             )
+            # print(f'--------------------------------doxyrun{ls -l}')
             if doxygenRun.checkAndRun():
                 log.info("  -> generating Doxygen files")
             else:
@@ -224,6 +245,9 @@ class MkDoxy(BasePlugin):
 
                 for file in generatorAuto.fullDocFiles:
                     files.append(file)
+        
+        temp_dir = str(Path(cloned_path).parent)
+        cleanup_temp_dir(temp_dir)
         return files
 
     def on_page_markdown(
@@ -259,9 +283,13 @@ class MkDoxy(BasePlugin):
             config=page_config,
             debug=self.debug,
         )
-
+        
         return generatorSnippets.generate()
 
+def cleanup_temp_dir(temp_dir):
+    """Remove the temporary directory created by mkdtemp."""
+    shutil.rmtree(temp_dir)
+    log.info(f"Temporary directory {temp_dir} removed.")
 
 # def on_serve(self, server):
 #     return server
