@@ -316,7 +316,7 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config) -> Na
                         return True
         return False
 
-    raw_nav = config.get("nav")
+    raw_nav = config.get("nav") or []
     section_found = find_and_insert(raw_nav, parent_nav_section, nav_entries)
 
     if not section_found:
