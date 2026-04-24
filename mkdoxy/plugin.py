@@ -149,6 +149,8 @@ class MkDoxy(BasePlugin):
         
         log.info(f"Start plugin {pluginName}")
 
+        temp_dirs_to_cleanup: list[str] = []
+
         for project_name, project_data in self.projects_config.items():
             log.info(f"-> Start project '{project_name}'")
 
@@ -164,6 +166,7 @@ class MkDoxy(BasePlugin):
                         recursive=self.config.get("git-recursive", False),
                         branch=project_data.get("git-branch", "main")
                     )
+                    temp_dirs_to_cleanup.append(str(Path(cloned_path).parent))
                     log.debug(f"Contents of cloned repository: {os.listdir(cloned_path)}")
                     # Update src-dirs to use cloned repository
                     if isinstance(src_dirs, str):
@@ -233,8 +236,8 @@ class MkDoxy(BasePlugin):
                 for file in generatorAuto.fullDocFiles:
                     files.append(file)
             self.new_nav = rewrite_nav(project_name, project_data.get("parent-nav-section"), config["site_dir"], files, config)
-        temp_dir = str(Path(cloned_path).parent)
-        cleanup_temp_dir(temp_dir)
+        for temp_dir in temp_dirs_to_cleanup:
+            cleanup_temp_dir(temp_dir)
         return files
 
     def on_page_markdown(
