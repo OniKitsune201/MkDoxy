@@ -31,10 +31,11 @@ log: logging.Logger = logging.getLogger("mkdocs")
 pluginName: str = "MkDoxy"
 
 
-def clone_repository(url: str, recursive: bool = False) -> str:
+def clone_repository(url: str, recursive: bool = False, branch: str = "main") -> str:
     """! Clone a git repository and return the path
     @param url: Repository URL
     @param recursive: Clone submodules recursively
+    @param branch: Branch to clone
     @return: Path to cloned repository
     """
     try:
@@ -46,7 +47,8 @@ def clone_repository(url: str, recursive: bool = False) -> str:
         clone_opts = {
             'url': url,
             'to_path': repo_path,
-            'depth': 1, 
+            'depth': 1,
+            'branch': branch,
             'recursive': recursive
         }
         
@@ -159,7 +161,8 @@ class MkDoxy(BasePlugin):
                     log.info(f"  -> cloning repository {git_url}")
                     cloned_path = clone_repository(
                         git_url,
-                        recursive=self.config.get("git-recursive", False)
+                        recursive=self.config.get("git-recursive", False),
+                        branch=project_data.get("git-branch", "main")
                     )
                     log.debug(f"Contents of cloned repository: {os.listdir(cloned_path)}")
                     # Update src-dirs to use cloned repository
