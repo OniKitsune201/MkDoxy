@@ -27,13 +27,7 @@ import shutil
 import yaml
 import re
 
-logging.basicConfig(
-    level=logging.DEBUG,  # Set the root logger to DEBUG
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
 log: logging.Logger = logging.getLogger("mkdocs")
-log.setLevel(logging.DEBUG)
 pluginName: str = "MkDoxy"
 
 
