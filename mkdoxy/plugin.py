@@ -170,7 +170,7 @@ class MkDoxy(BasePlugin):
                     log.debug(f"Contents of cloned repository: {os.listdir(cloned_path)}")
                     # Update src-dirs to use cloned repository
                     if isinstance(src_dirs, str):
-                        project_data["src-dirs"] = str(Path(cloned_path)) + '/' + str(src_dirs)
+                        project_data["src-dirs"] = str(Path(cloned_path) / src_dirs)
                     else:
                         project_data["src-dirs"] = str(Path(cloned_path))
                 except Exception as e:
@@ -307,7 +307,7 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config) -> Na
             for key, value in item.items():
                 if key == target:
                     if not isinstance(value, list):
-                        item[key] = []
+                        item[key] = [value]
                     item[key].extend(entries)
                     return True
                 # Recurse into nested lists
