@@ -13,7 +13,7 @@ from mkdocs import exceptions
 from mkdocs.config import Config, base, config_options
 from mkdocs.plugins import BasePlugin
 from mkdocs.structure import files, pages
-
+from mkdocs.structure.nav import Navigation, get_navigation
 from mkdoxy.cache import Cache
 from mkdoxy.doxygen import Doxygen
 from mkdoxy.doxyrun import DoxygenRun
@@ -102,7 +102,7 @@ class MkDoxy(BasePlugin):
         ("git-branch", config_options.Type(str, default="main")),
         ("parent-nav-section", config_options.Type(str, default="", required=True)),
     )
-
+    new_nav = None
     def is_enabled(self) -> bool:
         """! Checks if the plugin is enabled
         @details
@@ -151,7 +151,6 @@ class MkDoxy(BasePlugin):
             "indent_level": 0,
         }
         
-
         log.info(f"Start plugin {pluginName}")
 
         for project_name, project_data in self.projects_config.items():
@@ -172,12 +171,8 @@ class MkDoxy(BasePlugin):
                     # Update src-dirs to use cloned repository
                     if isinstance(src_dirs, str):
                         project_data["src-dirs"] = str(Path(cloned_path)) + '/' + str(src_dirs)
-                    # elif isinstance(src_dirs, list):
-                    #     src_dirs = [str(Path(cloned_path) / d) for d in src_dirs]
                     else:
                         project_data["src-dirs"] = str(Path(cloned_path))
-
-                    print(f'++++++++++++++++++++++++++++++++++projectdata src dir die erste{project_data["src-dirs"]}')
                 except Exception as e:
                     error_msg = f"Failed to clone repository {git_url}: {str(e)}"
                     if self.config["ignore-errors"]:
@@ -185,7 +180,6 @@ class MkDoxy(BasePlugin):
                         continue
                     else:
                         raise exceptions.ConfigurationError(error_msg)
-        print(f'++++++++++++++++++++++++++++++++++projectdata src dir die erste{project_data["src-dirs"]}')
         for project_name, project_data in self.projects_config.items():
             log.info(f"-> Start project '{project_name}'")
 
@@ -196,7 +190,6 @@ class MkDoxy(BasePlugin):
                 tempDirApi = tempDir("", self.config.get("save-api"), project_name)
             else:
                 tempDirApi = tempDir(config["site_dir"], "assets/.doxy/", project_name)
-            print(f'---------------------- projectdata srcdirs: {project_data.get("src-dirs")}')
             # Check src changes -> run Doxygen
             doxygenRun = DoxygenRun(
                 self.config["doxygen-bin-path"],
@@ -220,7 +213,6 @@ class MkDoxy(BasePlugin):
             # Print parsed files
             if self.debug:
                 self.doxygen[project_name].printStructure()
-            print(f'---------------------- after doxygen and xml parsing')
             # Prepare generator for future use (GeneratorAuto, SnippetGenerator)
             self.generatorBase[project_name] = GeneratorBase(
                 project_data.get("template-dir", ""),
@@ -237,25 +229,14 @@ class MkDoxy(BasePlugin):
                     doxygen=self.doxygen[project_name],
                     useDirectoryUrls=config["use_directory_urls"],
                 )
-                print(f'---------------------- after generator auto init')
                 project_config = self.defaultTemplateConfig.copy()
                 project_config.update(project_data)
                 generatorAuto.fullDoc(project_config)
-                print(f'---------------------- after generator auto full doc')
                 generatorAuto.summary(project_config)
-                print(f'---------------------- after generator auto summary')
                 for file in generatorAuto.fullDocFiles:
-                    print(f'---------------------- adding file to mkdocs: {file}')
                     files.append(file)
-                    print(f'---------------------- file added to mkdocs: {file}')
-            print(f'---------------------- before rewrite_nav')
-            rewrite_nav(project_name, project_data.get("parent-nav-section"), config["site_dir"], mkdocs_config=config, mkdocs_file="mkdocs.nav.yml")
-            print(f'---------------------- after rewrite_nav')
+            self.new_nav = rewrite_nav(project_name, project_data.get("parent-nav-section"), config["site_dir"], files, config)
         temp_dir = str(Path(cloned_path).parent)
-        print(f'---------------------- rewwrite_nav')
-        print(f'---------------------- project_name: {config["site_dir"]}')
-        
-        print(f'----------------------after rewrite_nav')
         cleanup_temp_dir(temp_dir)
         return files
 
@@ -294,46 +275,36 @@ class MkDoxy(BasePlugin):
         )
         
         return generatorSnippets.generate()
+    def on_nav(self, nav, config, files):
+        return nav
 
 
-def rewrite_nav(project_name, parent_nav_section, src_dirs, mkdocs_file="mkdocs.nav.yml"):
-    print(f'---------------------- rewrite_nav called with project_name: {project_name}, parent_nav_section: {parent_nav_section}, mkdocs_file: {mkdocs_file}')
+def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config) -> Navigation: 
     with open(f'{src_dirs}/assets/.doxy/{project_name}/{project_name}/links.md', 'r') as file:
         lines = file.read().splitlines()
     nav_entries = []
-    print(f'---------------------- lines read from links.md: {lines}')
     pattern = re.compile(r'-\s+\[([^\]]+)\]\(([^)]+)\)')
- 
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
- 
+
         match = pattern.search(line)
         if not match:
             continue
- 
+
         title = match.group(1).strip()
-        filename = match.group(2).strip()        
+        filename = match.group(2).strip()         
         path = f"{project_name}/{filename}"        
- 
+
         nav_entries.append({title: path})
-    print(f'---------------------- nav_entries generated from links.md: {nav_entries}')
-    mkdocs_path = Path(mkdocs_file)
-    if mkdocs_path.exists():
-        config = yaml.safe_load(mkdocs_path.read_text(encoding="utf-8")) or {}
-    else:
-        config = {}
- 
-    nav = config.get("nav") or [{"Home": "index.md"}]
-    print(f'---------------------- nav before: {nav}')
     def find_and_insert(nav_list: list, target: str, entries: list) -> bool:
-        """Recursively search nav_list for a section named target and extend it."""
+        """Recursively search a raw nav list of dicts for a section named target and extend it."""
         for item in nav_list:
             if not isinstance(item, dict):
                 continue
             for key, value in item.items():
-                # Found the target secti
                 if key == target:
                     if not isinstance(value, list):
                         item[key] = []
@@ -344,19 +315,17 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, mkdocs_file="mkdocs.
                     if find_and_insert(value, target, entries):
                         return True
         return False
- 
-    section_found = find_and_insert(nav, parent_nav_section, nav_entries)
- 
+
+    raw_nav = config.get("nav")
+    section_found = find_and_insert(raw_nav, parent_nav_section, nav_entries)
+
     if not section_found:
-        nav.append({parent_nav_section: nav_entries})
-    print(f'---------------------- nav after: {nav}')
-    config["nav"] = nav
-    mkdocs_path.write_text(
-        yaml.dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
- 
- 
+        log.warning(f"Parent nav section '{parent_nav_section}' not found in navigation. New entries will not be added.")
+
+    config["nav"] = raw_nav
+    nav = get_navigation(files, config)
+    return nav
+    
 
 def cleanup_temp_dir(temp_dir):
     """Remove the temporary directory created by mkdtemp."""
