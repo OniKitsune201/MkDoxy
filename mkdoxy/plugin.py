@@ -57,7 +57,7 @@ def clone_repository(url: str, recursive: bool = False, branch: str = "main") ->
         return str(repo_path)
         
     except GitExc.GitCommandError as e:
-        error_message = f"Git clone failed for {url}: {e.stderr.strip()}"
+        error_message = f"Git clone failed for {url}: {(e.stderr or str(e)).strip()}"
         log.error(error_message)
         raise ConfigurationError(error_message)
         
