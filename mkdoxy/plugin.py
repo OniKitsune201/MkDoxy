@@ -96,7 +96,7 @@ class MkDoxy(BasePlugin):
         ("template-dir", config_options.Type(str, default="", required=False)),
         ("git-url", config_options.Type(str, default="")),
         ("git-branch", config_options.Type(str, default="main")),
-        ("parent-nav-section", config_options.Type(str, default="", required=True)),
+        ("parent-nav-section", config_options.Type(str, default="", required=False)),
     )
     new_nav = None
     def is_enabled(self) -> bool:
@@ -235,7 +235,11 @@ class MkDoxy(BasePlugin):
                 generatorAuto.summary(project_config)
                 for file in generatorAuto.fullDocFiles:
                     files.append(file)
-            self.new_nav = rewrite_nav(project_name, project_data.get("parent-nav-section"), config["site_dir"], files, config)
+            parent_nav_section = project_data.get("parent-nav-section", "")
+            if parent_nav_section:
+                self.new_nav = rewrite_nav(project_name, parent_nav_section, config["site_dir"], files, config)
+            else:
+                log.debug(f"No 'parent-nav-section' set for project '{project_name}', skipping nav injection.")
         for temp_dir in temp_dirs_to_cleanup:
             cleanup_temp_dir(temp_dir)
         return files
