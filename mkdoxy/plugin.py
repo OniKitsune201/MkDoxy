@@ -303,28 +303,42 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config) -> Na
         path = f"{project_name}/{filename}"        
 
         nav_entries.append({title: path})
-    def find_and_insert(nav_list: list, target: str, entries: list) -> bool:
-        """Recursively search a raw nav list of dicts for a section named target and extend it."""
+
+    def find_and_insert_path(nav_list: list, section_path: list[str], entries: list) -> bool:
+        """Traverse a raw nav list following a path of nested section names and insert entries at the end."""
+        if not section_path:
+            return False
+
+        target = section_path[0]
+        remaining = section_path[1:]
+
         for item in nav_list:
             if not isinstance(item, dict):
                 continue
             for key, value in item.items():
                 if key == target:
-                    if not isinstance(value, list):
-                        item[key] = [value]
-                    item[key].extend(entries)
-                    return True
-                # Recurse into nested lists
-                if isinstance(value, list):
-                    if find_and_insert(value, target, entries):
+                    if not remaining:
+                        if not isinstance(value, list):
+                            item[key] = [value]
+                        item[key].extend(entries)
                         return True
+                    if isinstance(value, list):
+                        if find_and_insert_path(value, remaining, entries):
+                            return True
+                
         return False
 
+
+    section_path = [seg.strip() for seg in parent_nav_section.split("::")]
+
     raw_nav = config.get("nav") or []
-    section_found = find_and_insert(raw_nav, parent_nav_section, nav_entries)
+    section_found = find_and_insert_path(raw_nav, section_path, nav_entries)
 
     if not section_found:
-        log.warning(f"Parent nav section '{parent_nav_section}' not found in navigation. New entries will not be added.")
+        log.warning(
+            f"Parent nav section path '{parent_nav_section}' not found in navigation. "
+            f"Searched path: {' -> '.join(section_path)}. New entries will not be added."
+        )
 
     config["nav"] = raw_nav
     nav = get_navigation(files, config)
