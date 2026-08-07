@@ -233,6 +233,7 @@ class MkDoxy(BasePlugin):
                 project_config.update(project_data)
                 generatorAuto.fullDoc(project_config)
                 generatorAuto.summary(project_config)
+                generatorAuto.copyImages()
                 for file in generatorAuto.fullDocFiles:
                     files.append(file)
             parent_nav_section = project_data.get("parent-nav-section", "")
