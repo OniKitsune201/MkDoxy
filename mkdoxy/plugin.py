@@ -292,8 +292,32 @@ class MkDoxy(BasePlugin):
         return nav
 
 
+def find_doxygen_index(doxy_dir: str, project_name: str):
+    """! Determine the Doxygen landing page to use for 'nav-index-override'.
+    @details Prefers a real Doxygen mainpage (indexpage.md). If none exists,
+    falls back to the first related page listed in pages.md (typically the
+    project's README overview).
+    @return: (str|None) Path relative to the api-path (e.g. "proj/indexpage.md")
+             or None if no landing page could be determined.
+    """
+    if os.path.isfile(os.path.join(doxy_dir, "indexpage.md")):
+        return f"{project_name}/indexpage.md"
+
+    pages_md = os.path.join(doxy_dir, "pages.md")
+    if os.path.isfile(pages_md):
+        link_pattern = re.compile(r'\[[^\]]*\]\(([^)]+\.md)\)')
+        with open(pages_md, "r") as f:
+            for line in f:
+                match = link_pattern.search(line)
+                if match:
+                    return f"{project_name}/{match.group(1).strip()}"
+
+    return None
+
+
 def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_index_override="") -> Navigation: 
-    with open(f'{src_dirs}/assets/.doxy/{project_name}/{project_name}/links.md', 'r') as file:
+    doxy_dir = f'{src_dirs}/assets/.doxy/{project_name}/{project_name}'
+    with open(f'{doxy_dir}/links.md', 'r') as file:
         lines = file.read().splitlines()
     nav_entries = []
     index_path = None
@@ -312,11 +336,13 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_i
         filename = match.group(2).strip()         
         path = f"{project_name}/{filename}"        
 
-        # Remember the Doxygen mainpage (refid "indexpage") for optional nav override.
-        if filename == "indexpage.md":
-            index_path = path
-
         nav_entries.append({title: path})
+
+    # Determine the Doxygen "landing page" used for the optional nav override.
+    # Prefer a real Doxygen mainpage (indexpage.md); otherwise fall back to the
+    # first related page listed in pages.md (typically the project's README).
+    if nav_index_override:
+        index_path = find_doxygen_index(doxy_dir, project_name)
 
     def find_and_insert_path(nav_list: list, section_path: list[str], entries: list) -> bool:
         """Traverse a raw nav list following a path of nested section names and insert entries at the end."""
@@ -406,7 +432,8 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_i
     elif nav_index_override and not index_path:
         log.warning(
             f"'nav-index-override' is set for project '{project_name}', but no Doxygen "
-            f"mainpage (indexpage.md) was found. Nothing to override."
+            f"landing page (indexpage.md or a related page in pages.md) was found. "
+            f"Nothing to override."
         )
 
     section_found = find_and_insert_path(raw_nav, section_path, nav_entries)
