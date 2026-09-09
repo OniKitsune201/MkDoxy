@@ -394,8 +394,15 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_i
 
     def replace_path_value(nav_list: list, target_path: str, new_path: str) -> bool:
         """Recursively replace the first nav entry whose value equals target_path,
-        keeping its original title. Returns True if a replacement was made."""
-        for item in nav_list:
+        keeping its original title. Handles both titled entries ({title: path})
+        and bare string entries (- path). Returns True if a replacement was made."""
+        for index, item in enumerate(nav_list):
+            # Bare string entry, e.g. "- manual/.../index.md" (no explicit title)
+            if isinstance(item, str):
+                if item == target_path:
+                    nav_list[index] = new_path
+                    return True
+                continue
             if not isinstance(item, dict):
                 continue
             for key, value in item.items():
