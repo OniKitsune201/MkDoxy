@@ -97,6 +97,7 @@ class MkDoxy(BasePlugin):
         ("git-url", config_options.Type(str, default="")),
         ("git-branch", config_options.Type(str, default="main")),
         ("parent-nav-section", config_options.Type(str, default="", required=False)),
+        ("nav-index-override", config_options.Type(str, default="", required=False)),
     )
     new_nav = None
     def is_enabled(self) -> bool:
@@ -238,7 +239,14 @@ class MkDoxy(BasePlugin):
                     files.append(file)
             parent_nav_section = project_data.get("parent-nav-section", "")
             if parent_nav_section:
-                self.new_nav = rewrite_nav(project_name, parent_nav_section, config["site_dir"], files, config)
+                self.new_nav = rewrite_nav(
+                    project_name,
+                    parent_nav_section,
+                    config["site_dir"],
+                    files,
+                    config,
+                    nav_index_override=project_data.get("nav-index-override", ""),
+                )
             else:
                 log.debug(f"No 'parent-nav-section' set for project '{project_name}', skipping nav injection.")
         for temp_dir in temp_dirs_to_cleanup:
@@ -284,10 +292,11 @@ class MkDoxy(BasePlugin):
         return nav
 
 
-def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config) -> Navigation: 
+def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_index_override="") -> Navigation: 
     with open(f'{src_dirs}/assets/.doxy/{project_name}/{project_name}/links.md', 'r') as file:
         lines = file.read().splitlines()
     nav_entries = []
+    index_path = None
     pattern = re.compile(r'-\s+\[([^\]]+)\]\(([^)]+)\)')
 
     for line in lines:
@@ -302,6 +311,10 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config) -> Na
         title = match.group(1).strip()
         filename = match.group(2).strip()         
         path = f"{project_name}/{filename}"        
+
+        # Remember the Doxygen mainpage (refid "indexpage") for optional nav override.
+        if filename == "indexpage.md":
+            index_path = path
 
         nav_entries.append({title: path})
 
@@ -329,10 +342,73 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config) -> Na
                 
         return False
 
+    def find_section_list(nav_list: list, section_path: list[str]):
+        """Return the list of children under the given nested section path (or None)."""
+        if not section_path:
+            return None
+
+        target = section_path[0]
+        remaining = section_path[1:]
+
+        for item in nav_list:
+            if not isinstance(item, dict):
+                continue
+            for key, value in item.items():
+                if key != target:
+                    continue
+                if not remaining:
+                    if not isinstance(value, list):
+                        item[key] = [value]
+                    return item[key]
+                if isinstance(value, list):
+                    found = find_section_list(value, remaining)
+                    if found is not None:
+                        return found
+        return None
+
+    def replace_path_value(nav_list: list, target_path: str, new_path: str) -> bool:
+        """Recursively replace the first nav entry whose value equals target_path,
+        keeping its original title. Returns True if a replacement was made."""
+        for item in nav_list:
+            if not isinstance(item, dict):
+                continue
+            for key, value in item.items():
+                if value == target_path:
+                    item[key] = new_path
+                    return True
+                if isinstance(value, list):
+                    if replace_path_value(value, target_path, new_path):
+                        return True
+        return False
 
     section_path = [seg.strip() for seg in parent_nav_section.split("::")]
 
     raw_nav = config.get("nav") or []
+
+    # Optionally override an existing nav entry (within the parent section only)
+    # with the Doxygen mainpage, keeping the original title. This does not touch
+    # the referenced file, so its other references in the nav stay intact.
+    if nav_index_override and index_path:
+        section_list = find_section_list(raw_nav, section_path)
+        if section_list is None:
+            log.warning(
+                f"Parent nav section path '{parent_nav_section}' not found in navigation. "
+                f"Cannot apply 'nav-index-override'."
+            )
+        elif replace_path_value(section_list, nav_index_override, index_path):
+            # Don't add the mainpage again as a separate entry.
+            nav_entries = [e for e in nav_entries if index_path not in e.values()]
+        else:
+            log.warning(
+                f"'nav-index-override' target '{nav_index_override}' not found within "
+                f"section '{parent_nav_section}'. Mainpage will be added normally."
+            )
+    elif nav_index_override and not index_path:
+        log.warning(
+            f"'nav-index-override' is set for project '{project_name}', but no Doxygen "
+            f"mainpage (indexpage.md) was found. Nothing to override."
+        )
+
     section_found = find_and_insert_path(raw_nav, section_path, nav_entries)
 
     if not section_found:
