@@ -98,6 +98,7 @@ class MkDoxy(BasePlugin):
         ("git-branch", config_options.Type(str, default="main")),
         ("parent-nav-section", config_options.Type(str, default="", required=False)),
         ("nav-index-override", config_options.Type(str, default="", required=False)),
+        ("landing-page", config_options.Type(str, default="", required=False)),
     )
     new_nav = None
     def is_enabled(self) -> bool:
@@ -246,6 +247,7 @@ class MkDoxy(BasePlugin):
                     files,
                     config,
                     nav_index_override=project_data.get("nav-index-override", ""),
+                    landing_page=project_data.get("landing-page", ""),
                 )
             else:
                 log.debug(f"No 'parent-nav-section' set for project '{project_name}', skipping nav injection.")
@@ -315,7 +317,7 @@ def find_doxygen_index(doxy_dir: str, project_name: str):
     return None
 
 
-def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_index_override="") -> Navigation: 
+def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_index_override="", landing_page="") -> Navigation: 
     doxy_dir = f'{src_dirs}/assets/.doxy/{project_name}/{project_name}'
     with open(f'{doxy_dir}/links.md', 'r') as file:
         lines = file.read().splitlines()
@@ -339,10 +341,14 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_i
         nav_entries.append({title: path})
 
     # Determine the Doxygen "landing page" used for the optional nav override.
-    # Prefer a real Doxygen mainpage (indexpage.md); otherwise fall back to the
-    # first related page listed in pages.md (typically the project's README).
+    # If 'landing-page' is set, use that path (a simple address in the docs
+    # folder) directly. Otherwise fall back to a real Doxygen mainpage
+    # (indexpage.md) or the first related page listed in pages.md.
     if nav_index_override:
-        index_path = find_doxygen_index(doxy_dir, project_name)
+        if landing_page:
+            index_path = landing_page
+        else:
+            index_path = find_doxygen_index(doxy_dir, project_name)
 
     def find_and_insert_path(nav_list: list, section_path: list[str], entries: list) -> bool:
         """Traverse a raw nav list following a path of nested section names and insert entries at the end."""
