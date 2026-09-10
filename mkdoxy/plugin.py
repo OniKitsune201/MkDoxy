@@ -97,7 +97,7 @@ class MkDoxy(BasePlugin):
         ("git-url", config_options.Type(str, default="")),
         ("git-branch", config_options.Type(str, default="main")),
         ("parent-nav-section", config_options.Type(str, default="", required=False)),
-        ("nav-index-override", config_options.Type(str, default="", required=False)),
+        ("landing-page-replaces", config_options.Type(str, default="", required=False)),
         ("landing-page", config_options.Type(str, default="", required=False)),
     )
     new_nav = None
@@ -246,7 +246,7 @@ class MkDoxy(BasePlugin):
                     config["site_dir"],
                     files,
                     config,
-                    nav_index_override=project_data.get("nav-index-override", ""),
+                    landing_page_replaces=project_data.get("landing-page-replaces", ""),
                     landing_page=project_data.get("landing-page", ""),
                 )
             else:
@@ -295,7 +295,7 @@ class MkDoxy(BasePlugin):
 
 
 def find_doxygen_index(doxy_dir: str, project_name: str):
-    """! Determine the Doxygen landing page to use for 'nav-index-override'.
+    """! Determine the Doxygen landing page to use for 'landing-page-replaces'.
     @details Prefers a real Doxygen mainpage (indexpage.md). If none exists,
     falls back to the first related page listed in pages.md (typically the
     project's README overview).
@@ -317,7 +317,7 @@ def find_doxygen_index(doxy_dir: str, project_name: str):
     return None
 
 
-def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_index_override="", landing_page="") -> Navigation: 
+def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, landing_page_replaces="", landing_page="") -> Navigation: 
     doxy_dir = f'{src_dirs}/assets/.doxy/{project_name}/{project_name}'
     with open(f'{doxy_dir}/links.md', 'r') as file:
         lines = file.read().splitlines()
@@ -344,7 +344,7 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_i
     # If 'landing-page' is set, use that path (a simple address in the docs
     # folder) directly. Otherwise fall back to a real Doxygen mainpage
     # (indexpage.md) or the first related page listed in pages.md.
-    if nav_index_override:
+    if landing_page_replaces:
         if landing_page:
             index_path = landing_page
         else:
@@ -427,28 +427,28 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_i
     # Optionally override an existing nav entry (within the parent section only)
     # with the Doxygen mainpage, keeping the original title. This does not touch
     # the referenced file, so its other references in the nav stay intact.
-    if nav_index_override and index_path:
+    if landing_page_replaces and index_path:
         section_list = find_section_list(raw_nav, section_path)
         if section_list is None:
             log.warning(
                 f"Parent nav section path '{parent_nav_section}' not found in navigation. "
-                f"Cannot apply 'nav-index-override'."
+                f"Cannot apply 'landing-page-replaces'."
             )
-        elif replace_path_value(section_list, nav_index_override, index_path):
+        elif replace_path_value(section_list, landing_page_replaces, index_path):
             # Don't add the mainpage again as a separate entry.
             nav_entries = [e for e in nav_entries if index_path not in e.values()]
             log.info(
-                f"  -> nav-index-override: replaced '{nav_index_override}' with "
+                f"  -> landing-page-replaces: replaced '{landing_page_replaces}' with "
                 f"Doxygen landing page '{index_path}' in section '{parent_nav_section}'"
             )
         else:
             log.warning(
-                f"'nav-index-override' target '{nav_index_override}' not found within "
+                f"'landing-page-replaces' target '{landing_page_replaces}' not found within "
                 f"section '{parent_nav_section}'. Mainpage will be added normally."
             )
-    elif nav_index_override and not index_path:
+    elif landing_page_replaces and not index_path:
         log.warning(
-            f"'nav-index-override' is set for project '{project_name}', but no Doxygen "
+            f"'landing-page-replaces' is set for project '{project_name}', but no Doxygen "
             f"landing page (indexpage.md or a related page in pages.md) was found. "
             f"Nothing to override."
         )
