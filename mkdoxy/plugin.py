@@ -431,6 +431,10 @@ def rewrite_nav(project_name, parent_nav_section, src_dirs, files, config, nav_i
         elif replace_path_value(section_list, nav_index_override, index_path):
             # Don't add the mainpage again as a separate entry.
             nav_entries = [e for e in nav_entries if index_path not in e.values()]
+            log.info(
+                f"  -> nav-index-override: replaced '{nav_index_override}' with "
+                f"Doxygen landing page '{index_path}' in section '{parent_nav_section}'"
+            )
         else:
             log.warning(
                 f"'nav-index-override' target '{nav_index_override}' not found within "
